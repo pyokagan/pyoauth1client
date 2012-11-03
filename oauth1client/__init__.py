@@ -143,7 +143,6 @@ class RSASHA1SignatureMethod:
     name = "RSA-SHA1"
 
 
-
 class OAuth1Server:
     temp_cred_endpoint = None
     token_endpoint = None
@@ -162,6 +161,11 @@ class OAuth1Server:
                 "oauth_version": "1.0"}
         if token: p["oauth_token"] = token
         return p
+
+    def apply_req(self, r, cred):
+        p = self.oauth_params(cred.token)
+        p["oauth_signature"] = self.signature_method(r, p, cred.secret)
+        return self.apply_oauth_to_req(p, r)
 
     def temp_cred_req(self, oauth_callback = "oob", **kwargs):
         """Generate Request for requesting temporary credentials"""
@@ -205,9 +209,123 @@ class OAuth1Server:
         r = requests.request(**(req._asdict()))
         return self.token_parse_resp(r)
 
+    def basic_flow(self):
+        from subprocess import call
+        temp_cred = self.temp_cred()
+        url = self.auth_userreq(temp_cred)
+        call(["sensible-browser", url])
+        code = input("Code: ")
+        return TokenStore(self, self.token(temp_cred, code.strip()))
+
 class TwitterOAuth1(OAuth1Server):
     temp_cred_endpoint = "https://api.twitter.com/oauth/request_token"
     token_endpoint = "https://api.twitter.com/oauth/access_token"
     auth_endpoint = "https://api.twitter.com/oauth/authorize"
     def __init__(self, client_id, signature_method):
         super().__init__(client_id, signature_method)
+
+class TokenStore:
+    def __init__(self, server, token_credentials = None, path = None):
+        self.server = server
+        self.token_credentials = token_credentials
+        self.path = path
+        self.modified = True
+    def apply_req(self, r):
+        return self.server.apply_req(r, self.token_credentials)
+    def loads(self, input):
+        import pickle
+        self.token_credentials = pickle.loads(input)
+        self.modified = False
+    def load(self, file = None):
+        import pickle
+        if file is None:
+            if self.path is not None:
+                file = self.path
+            else:
+                raise ValueError("file must be provided if self.path is None")
+        if isinstance(file, str):
+            self.path = file 
+            file = open(file, "rb")
+        self.token_credentials = pickle.load(file)
+        self.modified = False
+
+    def dumps(self):
+        import pickle
+        return pickle.dumps(self.token_credentials)
+    
+    def dump(self, file = None):
+        import pickle
+        if file is None:
+            if self.path is not None:
+                file = self.path
+            else:
+                raise ValueError("file must be provided if self.path is None")
+        if self.modified:
+            if isinstance(file, str):
+                self.path = file
+                file = open(file, "wb")
+            pickle.dump(self.token_credentials, file)
+            return True
+        else:
+            return False
+
+import requests.auth
+
+class RequestsOAuth2(requests.auth.AuthBase):
+    def __init__(self, token_store):
+        self.token_store = token_store
+    def __call__(self, x):
+        y = Request(x.method, x.url, x.data, x.headers, x.cookies)
+        y = self.token_store.apply_req(y)
+        x.method = y.method
+        x.url = y.url
+        x.data = y.data
+        x.headers = y.headers
+        x.cookies = y.cookies
+        return x
+
+class CurlWrapper:
+    def __init__(self, token_store):
+        self.token_store = token_store
+
+    @staticmethod
+    def req_to_curl_args(req):
+        #Reconstruct CURL Request
+        args = []
+        #Headers
+        if req.headers:
+            for x, y in req.headers.items():
+                args.append("-H")
+                args.append("{}: {}".format(x, y))
+        #Data
+        if req.data:
+            for x, y in req.data.items():
+                args.append("-d")
+                args.append(urlencode({x: y}))
+        #Finally, URL
+        args.append(req.url)
+        return args
+
+    def call_curl(self, req, args, refresh = True):
+        from subprocess import call
+        import sys
+        if self.token_store:
+            r = self.token_store.apply_req(req)
+        else:
+            r = req
+        return_code = call(["curl"] + args +  self.req_to_curl_args(r))
+        return return_code
+
+    def main(self, args = None):
+        from . import Request
+        from argparse import ArgumentParser
+        import sys
+        p = ArgumentParser()
+        args, rest = p.parse_known_args(args)
+        if not rest:
+            p.error("URL not specified")
+        url = rest[-1]
+        del rest[-1]
+        req = Request(method = "GET", url = url, data = {}, headers = {}, cookies = {})
+        return self.call_curl(req, rest)
+
