@@ -290,6 +290,7 @@ class CurlWrapper:
 
     @staticmethod
     def req_to_curl_args(req):
+        from urllib.parse import urlencode
         #Reconstruct CURL Request
         args = []
         #Headers
@@ -321,11 +322,24 @@ class CurlWrapper:
         from argparse import ArgumentParser
         import sys
         p = ArgumentParser()
+        p.add_argument("-d", "--data-urlencode", dest = "data", action = "append", default = [])
         args, rest = p.parse_known_args(args)
         if not rest:
             p.error("URL not specified")
         url = rest[-1]
         del rest[-1]
-        req = Request(method = "GET", url = url, data = {}, headers = {}, cookies = {})
+        #Generate data
+        data = dict()
+        for x in args.data:
+            if x.startswith("@"):
+                key, _, value = open(x[1:]).read().partition("=")
+            else:
+                key, _, value = x.partition("=")
+            data[key] = value
+        if data or next(filter(lambda x: x.startswith("-F") or x == "--form", rest), None):
+            method = "POST"
+        else:
+            method = "GET"
+        req = Request(method = method, url = url, data = data, headers = {}, cookies = {})
         return self.call_curl(req, rest)
 
