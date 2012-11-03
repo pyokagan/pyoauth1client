@@ -275,11 +275,17 @@ class RequestsOAuth2(requests.auth.AuthBase):
     def __init__(self, token_store):
         self.token_store = token_store
     def __call__(self, x):
-        y = Request(x.method, x.url, x.data, x.headers, x.cookies)
+        if x.files:
+            data = {}
+            replace_data = False 
+        else:
+            replace_data = True
+            data = x.data
+        y = Request(x.method, x.url, data, x.headers, x.cookies)
         y = self.token_store.apply_req(y)
         x.method = y.method
         x.url = y.url
-        x.data = y.data
+        if replace_data: x.data = y.data
         x.headers = y.headers
         x.cookies = y.cookies
         return x
