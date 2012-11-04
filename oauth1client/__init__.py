@@ -185,6 +185,7 @@ class OAuth1Server:
         import requests
         req = self.temp_cred_req(oauth_callback, **kwargs)
         r = requests.request(**(req._asdict()))
+        r.raise_for_status()
         return self.temp_cred_parse_resp(r)
 
     def auth_userreq(self, temp_cred):
@@ -207,11 +208,12 @@ class OAuth1Server:
         import requests
         req = self.token_req(temp_cred, oauth_verifier)
         r = requests.request(**(req._asdict()))
+        r.raise_for_status()
         return self.token_parse_resp(r)
 
-    def basic_flow(self):
+    def basic_flow(self, oauth_callback = "oob"):
         from subprocess import call
-        temp_cred = self.temp_cred()
+        temp_cred = self.temp_cred(oauth_callback = oauth_callback)
         url = self.auth_userreq(temp_cred)
         call(["sensible-browser", url])
         code = input("Code: ")
@@ -221,8 +223,16 @@ class TwitterOAuth1(OAuth1Server):
     temp_cred_endpoint = "https://api.twitter.com/oauth/request_token"
     token_endpoint = "https://api.twitter.com/oauth/access_token"
     auth_endpoint = "https://api.twitter.com/oauth/authorize"
-    def __init__(self, client_id, signature_method):
-        super().__init__(client_id, signature_method)
+
+class TumblrOAuth1(OAuth1Server):
+    temp_cred_endpoint = "http://www.tumblr.com/oauth/request_token"
+    auth_endpoint = "http://www.tumblr.com/oauth/authorize"
+    token_endpoint = "http://www.tumblr.com/oauth/access_token"
+
+class BitbucketOAuth1(OAuth1Server):
+    temp_cred_endpoint = "https://bitbucket.org/!api/1.0/oauth/request_token"
+    auth_endpoint = "https://bitbucket.org/!api/1.0/oauth/authenticate"
+    token_endpoint = "https://bitbucket.org/!api/1.0/oauth/access_token"
 
 class TokenStore:
     def __init__(self, server, token_credentials = None, path = None):
