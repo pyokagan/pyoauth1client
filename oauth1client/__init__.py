@@ -415,6 +415,13 @@ bundled_config = {
             "token_cred_endpoint_method": "GET",
             "resources": "https://api.flickr.com|http://api.flickr.com|https://www.flickr.com|http://www.flickr.com",
             "_pyoauth1client_class": "oauth1client.FlickrOAuth1"
+            },
+        "trello": {
+            "temp_cred_endpoint": "https://trello.com/1/OAuthGetRequestToken",
+            "auth_endpoint": "https://trello.com/1/OAuthAuthorizeToken",
+            "token_cred_endpoint": "https://trello.com/1/OAuthGetAccessToken",
+            "resources": "https://trello.com",
+            "_pyoauth1client_class": "oauth1client.TrelloOAuth1"
             }
         }
 
@@ -652,4 +659,14 @@ class FlickrOAuth1(OAuth1Server):
         #with "unknown permissions" or something if the parameter is not provided.
         p = extra_params.copy()
         p.update({"perms": perms})
+        return super().auth_userreq(temp_cred, extra_params = p)
+
+class TrelloOAuth1(OAuth1Server):
+    def auth_userreq(self, temp_cred, *, scope="read,write,account",
+            expiration="never", name=None, extra_params = {}):
+        #NOTE: Trello just had to invent the scope parameter
+        p = extra_params.copy()
+        p.update({"scope": scope, "expiration": expiration})
+        if name:
+            p.update({"name": name})
         return super().auth_userreq(temp_cred, extra_params = p)
