@@ -1,0 +1,23 @@
+#! /usr/bin/python3
+from oauth1client import load_config
+from oauth1client.curl import CurlWrapper
+from argparse import ArgumentParser
+
+def main():
+    config = load_config()
+    p = ArgumentParser()
+    p.add_argument("--profile", default = "default")
+    p.add_argument("--server", default = "auto")
+    args, rest = p.parse_known_args()
+    if args.server == "auto":
+        if not rest:
+            p.error("URL not specified")
+        server = config.url(rest[-1])
+    else:
+        server = config.server(args.server)
+    token = server.load_profile(args.profile)
+    c = CurlWrapper(token)
+    c.main(rest)
+
+if __name__ == "__main__":
+    main()
