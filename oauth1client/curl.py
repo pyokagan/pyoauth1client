@@ -36,6 +36,8 @@ class CurlWrapper(SubprocessWrapper):
         from urllib.parse import urlencode
         #Reconstruct CURL Request
         args = []
+        args.append("-X")
+        args.append(req.method)
         #Headers
         if req.headers:
             for x, y in req.headers.items():
@@ -52,28 +54,68 @@ class CurlWrapper(SubprocessWrapper):
 
     def transform_args(self, args = None, *, parser_class = FriendlyArgumentParser):
         p = parser_class()
-        p.add_argument("-d", "--data-urlencode", dest = "data", action = "append", default = [])
+        #TODO: --data-binary????
+        p.add_argument("-d", dest = "data", action = "append", default = [])
+        p.add_argument("--data-urlencode", dest = "data_urlencode", action = "append",
+                default = [])
+        p.add_argument("-H", "--header", dest = "headers", action = "append", default = [])
+        p.add_argument("-X", "--request", dest = "method", action = "append", default = [])
         args, rest = p.parse_known_args(args)
         if not rest:
             p.error("URL not specified")
         url = rest[-1]
         del rest[-1]
-        #Generate data
-        data = dict()
-        for x in args.data:
-            if x.startswith("@"):
-                key, _, value = open(x[1:]).read().partition("=")
-            else:
-                key, _, value = x.partition("=")
-            data[key] = value
-        if data or next(filter(lambda x: x.startswith("-F") or x == "--form", rest), None):
+        before_rest = []
+        #Check headers for content-type
+        headers = dict()
+        for x in args.headers:
+            key, _, value = x.partition(":")
+            key = key.lower().strip()
+            value = value.strip()
+            if not value and not key.endswith(";") and key in headers:
+                del headers[key]
+            if key.endswith(";"):
+                key = key[:-1]
+            headers[key] = value
+            before_rest.append("-H")
+            before_rest.append(x)
+        data = {}
+        if "content-type" in headers and headers["content-type"] != "application/x-www-form-urlencoded":
+            #No data required since it is not needed in oauth signature.
+            #However, we need to add back the arguments later
+            for x in args.data:
+                before_rest.append("-d")
+                before_rest.append(x)
+            for x in args.data_urlencode:
+                before_rest.append("--data-urlencode")
+                before_rest.append(x)
+        else:
+            #Convert data to a dict
+            for x in args.data:
+                if x.startswith("@"):
+                    key, _, value = open(x[1:]).read().partition("=")
+                else:
+                    key, _, value = x.partition("=")
+                data[key] = unquote(value) #Expected to be urlencoded already
+            for x in args.data_urlencode:
+                if x.find("=") != -1:
+                    key, _, value = x.partition("=")
+                    if key:
+                        data[key] = value #Will urlencode later
+                    else:
+                        raise ValueError("--data-urlencode {} not supported".format(x))
+        if args.method:
+            method = args.method[-1].upper()
+        elif (args.data or args.data_urlencode or 
+                next(filter(lambda x: x.startswith("-F") or 
+                    x in ["--form","--data-binary"], rest), None)):
             method = "POST"
         else:
             method = "GET"
         req = Request(method = method, url = url, data = data, headers = {}, cookies = {})
         if self.token:
             req = self.token.apply_req(req)
-        return rest + self.req_to_curl_args(req)
+        return before_rest + rest + self.req_to_curl_args(req)
 
     def main(self, args = None):
         x = self.transform_args(args, parser_class = ArgumentParser)

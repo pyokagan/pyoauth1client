@@ -11,12 +11,12 @@ class OAuth1Auth(requests.auth.AuthBase):
         else:
             replace_data = True
             data = x.data
-        y = Request(x.method, x.url, data, x.headers, x.cookies)
+        y = Request(x.method, x.full_url, data, x.headers, x.cookies)
         y = self.token_store.apply_req(y)
         x.method = y.method
         x.url = y.url
         if replace_data: 
             x.data = y.data
-        x.headers = y.headers
+        x.headers.update(y.headers)
         x.cookies = y.cookies
         return x

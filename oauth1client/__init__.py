@@ -1,7 +1,7 @@
 """
 TODO: Write some documentation here
 """
-from collections import namedtuple as _namedtuple, UserDict
+from collections import namedtuple as _namedtuple, UserDict, Mapping, MutableMapping
 from abc import (ABCMeta as _ABCMeta, abstractproperty as _abstractproperty,
         abstractmethod as _abstractmethod)
 from functools import partial as _partial
@@ -48,9 +48,12 @@ def apply_query_to_url(url, p):
 
 
 def apply_headers_to_req(req, headers):
-    try:
-        h = dict(req.headers)
-    except:
+    if isinstance(req.headers, Mapping):
+        if isinstance(req.headers, MutableMapping):
+            h = copy(req.headers)
+        else:
+            h = dict(req.headers)
+    else:
         h = dict()
     h.update(headers)
     return req._replace(headers=h)
@@ -70,9 +73,12 @@ def apply_url_query_to_req(req, query):
 
 
 def apply_data_to_req(req, data):
-    try:
-        d = dict(req.data)
-    except:
+    if isinstance(req.data, Mapping):
+        if isinstance(req.data, MutableMapping):
+            d = copy(req.data)
+        else:
+            d = dict(req.data)
+    else:
         d = dict()
     d.update(data)
     return req._replace(method="POST", data=d)
@@ -131,10 +137,14 @@ def base_string_uri(uri):
 
 def base_string_request_params(uri, oauth_params = None, data = None):
     from urllib.parse import urlsplit, parse_qs, urlencode 
+    from collections import Mapping
     query = dict((k, v[0]) for k, v in parse_qs(urlsplit(uri).query).items())
-    if oauth_params: query.update(oauth_params)
-    if data: query.update(data)
-    if "oauth_signature" in query: del query["oauth_signature"]
+    if oauth_params: 
+        query.update(oauth_params)
+    if data and isinstance(data, Mapping):
+        query.update(data)
+    if "oauth_signature" in query: 
+        del query["oauth_signature"]
     #Parameter normalization
     params = [(urlquote(str(k)), urlquote(str(v))) for k, v in query.items()]
     params.sort()
@@ -300,7 +310,8 @@ class OAuth1Server:
 
     """ Authorization Endpoint """
 
-    def auth_userreq(self, temp_cred, *, extra_params = {}):
+    def auth_userreq(self, temp_cred, *, oauth_callback = None, 
+            extra_params = {}):
         p = extra_params.copy()
         p.update({"oauth_token": temp_cred.token})
         return apply_query_to_url(self.auth_endpoint, p)
@@ -331,7 +342,7 @@ class OAuth1Server:
             oauth_callback = self.callback
         def blah(redirect_url):
             temp_cred = self.temp_cred(oauth_callback = redirect_url)
-            url = self.auth_userreq(temp_cred)
+            url = self.auth_userreq(temp_cred, oauth_callback = redirect_url)
             return url, temp_cred
         url, temp_cred = ua_handle_http(blah, oauth_callback)
         code = self.auth_parse_userresp(url)
@@ -342,6 +353,24 @@ class OAuth1Server:
         x = token_class(self)
         x.load_profile(profile)
         return x
+
+class LegacyOAuth1Server(OAuth1Server):
+    def auth_userreq(self, temp_cred, *, oauth_callback = None, 
+            extra_params = {}):
+        if oauth_callback is None:
+            oauth_callback = self.callback
+        p = extra_params.copy()
+        p.update({"oauth_callback": oauth_callback})
+        return super().auth_userreq(temp_cred, extra_params = p)
+
+    def auth_parse_userresp(self, redirect_url):
+        p = dict((k, v[0]) for k, v in parse_qs(urlsplit(redirect_url).query).items())
+        return p["oauth_token"]
+
+    def token_cred_req(self, temp_cred, oauth_verifier):
+        r = Request(self.token_cred_endpoint_method, self.token_cred_endpoint)
+        temp_cred = temp_cred._replace(token = oauth_verifier)
+        return self.oauth(r, temp_cred)
 
 
 def get_all_file_paths_in_path(path: str):
@@ -422,6 +451,13 @@ bundled_config = {
             "token_cred_endpoint": "https://trello.com/1/OAuthGetAccessToken",
             "resources": "https://trello.com",
             "_pyoauth1client_class": "oauth1client.TrelloOAuth1"
+            },
+        "dropbox": {
+            "temp_cred_endpoint": "https://api.dropbox.com/1/oauth/request_token",
+            "auth_endpoint": "https://www.dropbox.com/1/oauth/authorize",
+            "token_cred_endpoint": "https://api.dropbox.com/1/oauth/access_token",
+            "resources": "https://api-content.dropbox.com|https://api.dropbox.com",
+            "version": "1.0"
             }
         }
 
@@ -440,14 +476,22 @@ class Config(UserDict):
         else:
             raise ValueError("Unknown signature method {0!r}".format(signature_method))
         x["signature_method"] = signature_method
+        if "version" in x:
+            version = x["version"]
+        else:
+            version = "rfc"
         if "_pyoauth1client_class" in x:
             module, _, cls = x["_pyoauth1client_class"].rpartition(".")
             module = __import__(module, fromlist = [cls])
             cls = getattr(module, cls)
-        else:
+        elif version == "rfc" or version == "1.0a":
             cls = OAuth1Server
+        elif version == "1.0":
+            cls = LegacyOAuth1Server
+        else:
+            raise ValueError("Unknown oAuth version {!r}".format(version))
         x = dict((k, v) for k, v in x.items() if not (k.startswith("_") or 
-            k == "client_secret" or k == "resources"))
+            k in ["client_secret", "resources", "version"]))
         x.update(kwargs)
         y = cls(**x)
         y.name = name
