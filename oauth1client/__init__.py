@@ -479,6 +479,7 @@ bundled_config = {
             "temp_cred_endpoint": "https://api.t.sina.com.cn/oauth/request_token",
             "auth_endpoint": "https://api.t.sina.com.cn/oauth/authorize",
             "token_cred_endpoint": "https://api.t.sina.com.cn/oauth/access_token",
+            "resources": "https://api.t.sina.com.cn|http://api.t.sina.com.cn",
             "_pyoauth1client_class": "oauth1client.WeiboOAuth1"
             }
         }
