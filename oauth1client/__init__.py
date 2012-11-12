@@ -458,6 +458,13 @@ bundled_config = {
             "token_cred_endpoint": "https://api.dropbox.com/1/oauth/access_token",
             "resources": "https://api-content.dropbox.com|https://api.dropbox.com",
             "version": "1.0"
+            },
+        "vimeo": {
+            "temp_cred_endpoint": "https://vimeo.com/oauth/request_token",
+            "auth_endpoint": "https://vimeo.com/oauth/authorize",
+            "token_cred_endpoint": "https://vimeo.com/oauth/access_token",
+            "resources": "https://vimeo.com/api/rest/v2",
+            "_pyoauth1client_class": "oauth1client.VimeoOAuth1"
             }
         }
 
@@ -698,7 +705,8 @@ class FlickrOAuth1(OAuth1Server):
             y = y._replace(url = urlunsplit(x))
         return y
 
-    def auth_userreq(self, temp_cred, *, perms = "delete", extra_params = {}):
+    def auth_userreq(self, temp_cred, *,
+            oauth_callback = None, perms = "delete", extra_params = {}):
         #NOTE: Flickr REQUIRES the perms URL parameter. It will error out
         #with "unknown permissions" or something if the parameter is not provided.
         p = extra_params.copy()
@@ -706,7 +714,9 @@ class FlickrOAuth1(OAuth1Server):
         return super().auth_userreq(temp_cred, extra_params = p)
 
 class TrelloOAuth1(OAuth1Server):
-    def auth_userreq(self, temp_cred, *, scope="read,write,account",
+    def auth_userreq(self, temp_cred, *,
+            oauth_callback = None,
+            scope="read,write,account",
             expiration="never", name=None, extra_params = {}):
         #NOTE: Trello just had to invent the scope parameter
         p = extra_params.copy()
@@ -714,3 +724,13 @@ class TrelloOAuth1(OAuth1Server):
         if name:
             p.update({"name": name})
         return super().auth_userreq(temp_cred, extra_params = p)
+
+class VimeoOAuth1(OAuth1Server):
+    def auth_userreq(self, temp_cred, *, oauth_callback = None,
+            permission = "delete", 
+            extra_params = {}):
+        #permission: one of read, write, delete
+        p = extra_params.copy()
+        p.update({"permission": permission})
+        return super().auth_userreq(temp_cred, oauth_callback = oauth_callback,
+                extra_params = p)
