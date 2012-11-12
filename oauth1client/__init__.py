@@ -314,6 +314,8 @@ class OAuth1Server:
             extra_params = {}):
         p = extra_params.copy()
         p.update({"oauth_token": temp_cred.token})
+        if oauth_callback:
+            p.update({"oauth_callback": oauth_callback})
         return apply_query_to_url(self.auth_endpoint, p)
     
     def auth_parse_userresp(self, redirect_url):
@@ -333,6 +335,7 @@ class OAuth1Server:
     def token_cred(self, temp_cred, oauth_verifier):
         req = self.token_cred_req(temp_cred, oauth_verifier)
         r = requests.request(**(req._asdict()))
+        print(r.text)
         r.raise_for_status()
         return self.token_cred_parse_resp(r)
 
@@ -471,6 +474,12 @@ bundled_config = {
             "auth_endpoint": "https://api.login.yahoo.com/oauth/v2/request_auth",
             "token_cred_endpoint": "https://api.login.yahoo.com/oauth/v2/get_token",
             "resources": "http://social.yahooapis.com"
+            },
+        "weibo": {
+            "temp_cred_endpoint": "https://api.t.sina.com.cn/oauth/request_token",
+            "auth_endpoint": "https://api.t.sina.com.cn/oauth/authorize",
+            "token_cred_endpoint": "https://api.t.sina.com.cn/oauth/access_token",
+            "_pyoauth1client_class": "oauth1client.WeiboOAuth1"
             }
         }
 
@@ -684,7 +693,7 @@ def ua_handle_http(gen_userreq, redirect_uri):
 
 
 """ Workarounds """
-class FlickrOAuth1(OAuth1Server):
+class ProtocolSignatureWorkaround(OAuth1Server):
     def oauth(self, req, credentials = None, params = {}):
         #NOTE: While flickr supports HTTPS in its oauth endpoints, flickr
         #thinks that the HTTPS endpoints are being accessed via HTTP, and thus
@@ -711,6 +720,8 @@ class FlickrOAuth1(OAuth1Server):
             y = y._replace(url = urlunsplit(x))
         return y
 
+
+class FlickrOAuth1(ProtocolSignatureWorkaround, OAuth1Server):
     def auth_userreq(self, temp_cred, *,
             oauth_callback = None, perms = "delete", extra_params = {}):
         #NOTE: Flickr REQUIRES the perms URL parameter. It will error out
@@ -740,3 +751,7 @@ class VimeoOAuth1(OAuth1Server):
         p.update({"permission": permission})
         return super().auth_userreq(temp_cred, oauth_callback = oauth_callback,
                 extra_params = p)
+
+class WeiboOAuth1(ProtocolSignatureWorkaround, OAuth1Server):
+    pass
+
