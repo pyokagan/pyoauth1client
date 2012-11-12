@@ -465,6 +465,12 @@ bundled_config = {
             "token_cred_endpoint": "https://vimeo.com/oauth/access_token",
             "resources": "https://vimeo.com/api/rest/v2",
             "_pyoauth1client_class": "oauth1client.VimeoOAuth1"
+            },
+        "yahoo": {
+            "temp_cred_endpoint": "https://api.login.yahoo.com/oauth/v2/get_request_token",
+            "auth_endpoint": "https://api.login.yahoo.com/oauth/v2/request_auth",
+            "token_cred_endpoint": "https://api.login.yahoo.com/oauth/v2/get_token",
+            "resources": "http://social.yahooapis.com"
             }
         }
 
