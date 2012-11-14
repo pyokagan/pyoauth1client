@@ -2,6 +2,7 @@ from argparse import ArgumentParser
 from oauth1client import Request
 import sys
 import subprocess
+from urllib.parse import unquote
 
 class FriendlyArgumentParser(ArgumentParser):
     """An ArgumentParser that does not call sys.exit
