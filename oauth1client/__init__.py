@@ -262,6 +262,15 @@ class Token:
 
 """ Server """
 
+class AuthorizationEndpointResponse(UserDict):
+    oauth_token = property(lambda x: x["oauth_token"], doc = ( "The temporary "
+        "credential token which was authorized."))
+    @property
+    def oauth_verifier(self):
+        "The verification code"
+        return self["oauth_verifier"] if "oauth_verifier" in self else None
+
+
 class OAuth1Server:
     callback = "http://localhost"
     req_oauth = staticmethod(req_apply_oauth_header)
@@ -271,15 +280,14 @@ class OAuth1Server:
             temp_cred_endpoint_method = "POST",
             token_cred_endpoint = None, 
             token_cred_endpoint_method = "POST",
-            auth_endpoint = None, callback = "http://localhost"):
-        self.client_id = client_id
-        self.signature_method = signature_method
-        self.temp_cred_endpoint = temp_cred_endpoint
-        self.temp_cred_endpoint_method = temp_cred_endpoint_method
-        self.token_cred_endpoint = token_cred_endpoint
-        self.token_cred_endpoint_method = token_cred_endpoint_method
-        self.auth_endpoint = auth_endpoint
-        self.callback = callback
+            auth_endpoint = None,
+            auth_params = {},
+            callback = "http://localhost"):
+        for x in ("client_id", "signature_method", "temp_cred_endpoint",
+                "temp_cred_endpoint_method", "token_cred_endpoint",
+                "token_cred_endpoint_method", "auth_endpoint",
+                "auth_params", "callback"):
+            setattr(self, x, locals()[x])
 
     def oauth(self, req, credentials = None, params = {}):
         """Adds oauth parameters and signs a Request"""
@@ -310,17 +318,15 @@ class OAuth1Server:
 
     """ Authorization Endpoint """
 
-    def auth_userreq(self, temp_cred, *, oauth_callback = None, 
-            extra_params = {}):
-        p = extra_params.copy()
+    def auth_userreq(self, temp_cred, **kwargs):
+        p = self.auth_params.copy()
+        p.update(kwargs)
         p.update({"oauth_token": temp_cred.token})
-        if oauth_callback:
-            p.update({"oauth_callback": oauth_callback})
         return apply_query_to_url(self.auth_endpoint, p)
     
     def auth_parse_userresp(self, redirect_url):
         p = dict((k, v[0]) for k, v in parse_qs(urlsplit(redirect_url).query).items())
-        return p["oauth_verifier"]
+        return AuthorizationEndpointResponse(dict = p)
 
     """ Token Credentials Endpoint """
 
@@ -335,7 +341,6 @@ class OAuth1Server:
     def token_cred(self, temp_cred, oauth_verifier):
         req = self.token_cred_req(temp_cred, oauth_verifier)
         r = requests.request(**(req._asdict()))
-        print(r.text)
         r.raise_for_status()
         return self.token_cred_parse_resp(r)
 
@@ -348,7 +353,7 @@ class OAuth1Server:
             url = self.auth_userreq(temp_cred, oauth_callback = redirect_url)
             return url, temp_cred
         url, temp_cred = ua_handle_http(blah, oauth_callback)
-        code = self.auth_parse_userresp(url)
+        code = self.auth_parse_userresp(url).oauth_verifier
         return token_class(self, self.token_cred(temp_cred, code))
 
     def load_profile(self, profile = "default", *, token_class = Token):
@@ -359,20 +364,15 @@ class OAuth1Server:
 
 class LegacyOAuth1Server(OAuth1Server):
     def auth_userreq(self, temp_cred, *, oauth_callback = None, 
-            extra_params = {}):
+            **kwargs):
         if oauth_callback is None:
             oauth_callback = self.callback
-        p = extra_params.copy()
-        p.update({"oauth_callback": oauth_callback})
-        return super().auth_userreq(temp_cred, extra_params = p)
+        kwargs.update({"oauth_callback": oauth_callback})
+        return super().auth_userreq(temp_cred, **kwargs)
 
-    def auth_parse_userresp(self, redirect_url):
-        p = dict((k, v[0]) for k, v in parse_qs(urlsplit(redirect_url).query).items())
-        return p["oauth_token"]
-
-    def token_cred_req(self, temp_cred, oauth_verifier):
+    def token_cred_req(self, temp_cred, oauth_verifier = None):
+        #NOTE: oauth_verifier is ignored as oauth1 core does not support it.
         r = Request(self.token_cred_endpoint_method, self.token_cred_endpoint)
-        temp_cred = temp_cred._replace(token = oauth_verifier)
         return self.oauth(r, temp_cred)
 
 
@@ -401,13 +401,13 @@ def get_all_file_paths_in_paths(paths: [str]):
     return chain.from_iterable(paths_iter2)
 
 def _config_search_paths_posix():
-    return ["/usr/share/oauth1/db.d",
-            "/usr/share/oauth1/db.json",
-            "/usr/local/share/oauth1/db.d",
-            "/usr/local/share/oauth1/db.json",
+    return ["/usr/share/oauth1/providers.d",
+            "/usr/share/oauth1/providers.json",
+            "/usr/local/share/oauth1/providers.d",
+            "/usr/local/share/oauth1/providers.json",
             "/etc/oauth1.json",
-            expanduser("~/.local/share/oauth1/oauth1.d"),
-            expanduser("~/.local/share/oauth1/oauth1.json"),
+            expanduser("~/.local/share/oauth1/providers.d"),
+            expanduser("~/.local/share/oauth1/providers.json"),
             expanduser("~/.config/oauth1.json")
             ]
 
@@ -419,70 +419,6 @@ def merge(x, y):
         if key in y:
             x[key].update(y[key])
     return x
-
-bundled_config = {
-        "twitter": {
-            "temp_cred_endpoint": "https://api.twitter.com/oauth/request_token",
-            "token_cred_endpoint": "https://api.twitter.com/oauth/access_token",
-            "auth_endpoint": "https://api.twitter.com/oauth/authorize",
-            "resources": "https://api.twitter.com|https://userstream.twitter.com|https://stream.twitter.com"
-            },
-        "tumblr": {
-            "temp_cred_endpoint": "https://www.tumblr.com/oauth/request_token",
-            "auth_endpoint": "https://www.tumblr.com/oauth/authorize",
-            "token_cred_endpoint": "https://www.tumblr.com/oauth/access_token",
-            "resources": "https://api.tumblr.com"
-            },
-        "bitbucket": {
-            "temp_cred_endpoint": "https://bitbucket.org/!api/1.0/oauth/request_token",
-            "auth_endpoint": "https://bitbucket.org/!api/1.0/oauth/authenticate",
-            "token_cred_endpoint": "https://bitbucket.org/!api/1.0/oauth/access_token",
-            "resources": "https://api.bitbucket.org"
-            },
-        "flickr": {
-            "temp_cred_endpoint": "https://www.flickr.com/services/oauth/request_token",
-            "temp_cred_endpoint_method": "GET",
-            "auth_endpoint": "https://www.flickr.com/services/oauth/authorize",
-            "token_cred_endpoint": "https://www.flickr.com/services/oauth/access_token",
-            "token_cred_endpoint_method": "GET",
-            "resources": "https://api.flickr.com|http://api.flickr.com|https://www.flickr.com|http://www.flickr.com",
-            "_pyoauth1client_class": "oauth1client.FlickrOAuth1"
-            },
-        "trello": {
-            "temp_cred_endpoint": "https://trello.com/1/OAuthGetRequestToken",
-            "auth_endpoint": "https://trello.com/1/OAuthAuthorizeToken",
-            "token_cred_endpoint": "https://trello.com/1/OAuthGetAccessToken",
-            "resources": "https://trello.com",
-            "_pyoauth1client_class": "oauth1client.TrelloOAuth1"
-            },
-        "dropbox": {
-            "temp_cred_endpoint": "https://api.dropbox.com/1/oauth/request_token",
-            "auth_endpoint": "https://www.dropbox.com/1/oauth/authorize",
-            "token_cred_endpoint": "https://api.dropbox.com/1/oauth/access_token",
-            "resources": "https://api-content.dropbox.com|https://api.dropbox.com",
-            "version": "1.0"
-            },
-        "vimeo": {
-            "temp_cred_endpoint": "https://vimeo.com/oauth/request_token",
-            "auth_endpoint": "https://vimeo.com/oauth/authorize",
-            "token_cred_endpoint": "https://vimeo.com/oauth/access_token",
-            "resources": "https://vimeo.com/api/rest/v2",
-            "_pyoauth1client_class": "oauth1client.VimeoOAuth1"
-            },
-        "yahoo": {
-            "temp_cred_endpoint": "https://api.login.yahoo.com/oauth/v2/get_request_token",
-            "auth_endpoint": "https://api.login.yahoo.com/oauth/v2/request_auth",
-            "token_cred_endpoint": "https://api.login.yahoo.com/oauth/v2/get_token",
-            "resources": "http://social.yahooapis.com"
-            },
-        "weibo": {
-            "temp_cred_endpoint": "https://api.t.sina.com.cn/oauth/request_token",
-            "auth_endpoint": "https://api.t.sina.com.cn/oauth/authorize",
-            "token_cred_endpoint": "https://api.t.sina.com.cn/oauth/access_token",
-            "resources": "https://api.t.sina.com.cn|http://api.t.sina.com.cn",
-            "_pyoauth1client_class": "oauth1client.WeiboOAuth1"
-            }
-        }
 
 class Config(UserDict):
     def server(self, name, **kwargs):
@@ -542,7 +478,7 @@ def load_config(paths = config_search_paths):
         f.close()
         return y
     configs = (load_file(x) for x in z)
-    return Config(reduce(lambda x, y: merge(x, y), chain([bundled_config], configs)))
+    return Config(reduce(lambda x, y: merge(x, y), configs))
 
 """ User Interface Support """
 
@@ -720,39 +656,3 @@ class ProtocolSignatureWorkaround(OAuth1Server):
             x = x._replace(scheme = "https")
             y = y._replace(url = urlunsplit(x))
         return y
-
-
-class FlickrOAuth1(ProtocolSignatureWorkaround, OAuth1Server):
-    def auth_userreq(self, temp_cred, *,
-            oauth_callback = None, perms = "delete", extra_params = {}):
-        #NOTE: Flickr REQUIRES the perms URL parameter. It will error out
-        #with "unknown permissions" or something if the parameter is not provided.
-        p = extra_params.copy()
-        p.update({"perms": perms})
-        return super().auth_userreq(temp_cred, extra_params = p)
-
-class TrelloOAuth1(OAuth1Server):
-    def auth_userreq(self, temp_cred, *,
-            oauth_callback = None,
-            scope="read,write,account",
-            expiration="never", name=None, extra_params = {}):
-        #NOTE: Trello just had to invent the scope parameter
-        p = extra_params.copy()
-        p.update({"scope": scope, "expiration": expiration})
-        if name:
-            p.update({"name": name})
-        return super().auth_userreq(temp_cred, extra_params = p)
-
-class VimeoOAuth1(OAuth1Server):
-    def auth_userreq(self, temp_cred, *, oauth_callback = None,
-            permission = "delete", 
-            extra_params = {}):
-        #permission: one of read, write, delete
-        p = extra_params.copy()
-        p.update({"permission": permission})
-        return super().auth_userreq(temp_cred, oauth_callback = oauth_callback,
-                extra_params = p)
-
-class WeiboOAuth1(ProtocolSignatureWorkaround, OAuth1Server):
-    pass
-
