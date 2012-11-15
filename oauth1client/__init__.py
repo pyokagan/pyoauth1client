@@ -281,12 +281,11 @@ class OAuth1Server:
             token_cred_endpoint = None, 
             token_cred_endpoint_method = "POST",
             auth_endpoint = None,
-            auth_params = {},
             callback = "http://localhost"):
         for x in ("client_id", "signature_method", "temp_cred_endpoint",
                 "temp_cred_endpoint_method", "token_cred_endpoint",
                 "token_cred_endpoint_method", "auth_endpoint",
-                "auth_params", "callback"):
+                "callback"):
             setattr(self, x, locals()[x])
 
     def oauth(self, req, credentials = None, params = {}):
@@ -319,10 +318,8 @@ class OAuth1Server:
     """ Authorization Endpoint """
 
     def auth_userreq(self, temp_cred, **kwargs):
-        p = self.auth_params.copy()
-        p.update(kwargs)
-        p.update({"oauth_token": temp_cred.token})
-        return apply_query_to_url(self.auth_endpoint, p)
+        kwargs.update({"oauth_token": temp_cred.token})
+        return apply_query_to_url(self.auth_endpoint, kwargs)
     
     def auth_parse_userresp(self, redirect_url):
         p = dict((k, v[0]) for k, v in parse_qs(urlsplit(redirect_url).query).items())
